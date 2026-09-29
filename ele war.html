@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Elemental 3D RPG Prototype</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #111; }
+    #hud { position: absolute; top: 16px; left: 16px; color: #fff; font-family: sans-serif; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <h2>Elemental Core: Level 1</h2>
+    <p>WASD to Move | Mouse to Rotate | Left-Click Cast</p>
+  </div>
+  <script type="module">
+    import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x1a1a2e, 0.03);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444455, 0.6);
+    scene.add(hemiLight);
+    const dirLight = new THREE.DirectionalLight(0xffaa44, 0.8);
+    dirLight.position.set(20, 40, 20);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    // Arena Floor
+    const floorGeo = new THREE.CylinderGeometry(30, 30, 1, 32);
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x222228, roughness: 0.8 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.y = -0.5;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Player Mesh
+    const playerGeo = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+    const playerMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, roughness: 0.3 });
+    const player = new THREE.Mesh(playerGeo, playerMat);
+    player.position.y = 1;
+    player.castShadow = true;
+    scene.add(player);
+
+    // Input state
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    // Game Loop
+    const speed = 0.12;
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (keys['KeyW']) player.position.z -= speed;
+      if (keys['KeyS']) player.position.z += speed;
+      if (keys['KeyA']) player.position.x -= speed;
+      if (keys['KeyD']) player.position.x += speed;
+
+      // Third-person camera follow
+      camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 6, player.position.z + 12), 0.1);
+      camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

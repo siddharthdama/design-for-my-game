@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Sundered Crucible - Elemental Warfare</title>
+  <style>
+    :root {
+      --bg: #0c0f17;
+      --panel: #161b26;
+      --panel-border: #232d40;
+      --text: #f0f4fc;
+      --text-muted: #8b9bb4;
+      --fire: #ff5232;
+      --water: #00b4d8;
+      --earth: #90be6d;
+      --air: #f3c642;
+      --hp-bar: #2ecc71;
+      --mana-bar: #3498db;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at center, #1b2233 0%, var(--bg) 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--fire), var(--air), var(--water));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Screen Wrappers */
+    .screen {
+      width: 100%;
+      max-width: 900px;
+      display: none;
+    }
+
+    .active-screen {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* Selection Screen */
+    .selection-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    .select-card {
+      background: var(--panel);
+      border: 2px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 1.5rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .select-card:hover {
+      transform: translateY(-4px);
+    }
+
+    .select-card.fire:hover { border-color: var(--fire); }
+    .select-card.water:hover { border-color: var(--water); }
+    .select-card.earth:hover { border-color: var(--earth); }
+    .select-card.air:hover { border-color: var(--air); }
+
+    /* Battle Arena */
+    .arena {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 650px) {
+      .arena { grid-template-columns: 1fr; }
+    }
+
+    .unit-card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .unit-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .bar-container {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.8rem;
+    }
+
+    .bar-track {
+      background: #090c12;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+
+    .hp-fill { background-color: var(--hp-bar); }
+    .mana-fill { background-color: var(--mana-bar); }
+
+    .statuses {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-height: 24px;
+    }
+
+    .status-tag {
+      font-size: 0.7rem;
+      background: #2b3548;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Skills Grid */
+    .skills-container {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+
+    .skills-header {
+      margin-bottom: 0.75rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    .skills-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.5rem;
+      max-height: 240px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .skill-btn {
+      background: #1c2434;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      padding: 0.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .skill-btn:hover:not(:disabled) {
+      background: #26334a;
+      border-color: var(--text-muted);
+    }
+
+    .skill-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .skill-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: block;
+    }
+
+    .skill-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      margin-top: 4px;
+    }
+
+    /* Combat Log */
+    .combat-log {
+      background: #080a0e;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      height: 120px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .log-reaction {
+      color: #ffd166;
+      font-weight: 700;
+    }
+
+    /* Elemental Colors */
+    .tag-fire { color: var(--fire); }
+    .tag-water { color: var(--water); }
+    .tag-earth { color: var(--earth); }
+    .tag-air { color: var(--air); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>The Sundered Crucible</h1>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">4-Element Realm War Prototype</p>
+  </header>
+
+  <!-- SELECT NATION SCREEN -->
+  <div id="screen-select" class="screen active-screen">
+    <h2 style="text-align: center; margin-bottom: 0.5rem;">Pledge to an Elemental Nation</h2>
+    <div class="selection-grid">
+      <div class="select-card fire" onclick="startGame('FIRE')">
+        <h3 class="tag-fire">Ignis</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">High damage, burning procs, thermal combos.</p>
+      </div>
+      <div class="select-card water" onclick="startGame('WATER')">
+        <h3 class="tag-water">Oceanus</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">Sustained control, wet statuses, flash freezing.</p>
+      </div>
+      <div class="select-card earth" onclick="startGame('EARTH')">
+        <h3 class="tag-earth">Grave</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">Heavy resilience, brittle earth, ground breaks.</p>
+      </div>
+      <div class="select-card air" onclick="startGame('AIR')">
+        <h3 class="tag-air">Aero</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px;">High speed, charged air, lightning reactions.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- BATTLE SCREEN -->
+  <div id="screen-battle" class="screen">
+    <div class="arena">
+      <!-- Player Panel -->
+      <div class="unit-card" id="player-card">
+        <div class="unit-header">
+          <strong id="player-name">Player</strong>
+          <span id="player-nation-badge" class="badge">NATION</span>
+        </div>
+        <div class="bar-container">
+          <span id="player-hp-label">HP: 1000/1000</span>
+          <div class="bar-track"><div id="player-hp-bar" class="bar-fill hp-fill" style="width: 100%;"></div></div>
+        </div>
+        <div class="bar-container">
+          <span id="player-mana-label">Mana: 400/400</span>
+          <div class="bar-track"><div id="player-mana-bar" class="bar-fill mana-fill" style="width: 100%;"></div></div>
+        </div>
+        <div class="statuses" id="player-statuses"></div>
+      </div>
+
+      <!-- Enemy Panel -->
+      <div class="unit-card" id="enemy-card">
+        <div class="unit-header">
+          <strong id="enemy-name">Rival Champion</strong>
+          <span id="enemy-nation-badge" class="badge">NATION</span>
+        </div>
+        <div class="bar-container">
+          <span id="enemy-hp-label">HP: 1000/1000</span>
+          <div class="bar-track"><div id="enemy-hp-bar" class="bar-fill hp-fill" style="width: 100%;"></div></div>
+        </div>
+        <div class="bar-container">
+          <span id="enemy-mana-label">Mana: 400/400</span>
+          <div class="bar-track"><div id="enemy-mana-bar" class="bar-fill mana-fill" style="width: 100%;"></div></div>
+        </div>
+        <div class="statuses" id="enemy-statuses"></div>
+      </div>
+    </div>
+
+    <!-- 10 Skills Available per Element -->
+    <div class="skills-container">
+      <div class="skills-header">Select an unlocked elemental technique (10 Levels):</div>
+      <div class="skills-grid" id="skills-grid"></div>
+    </div>
+
+    <!-- Battle Log -->
+    <div class="combat-log" id="combat-log"></div>
+  </div>
+
+  <script>
+    // --- 10 SKILLS FOR EACH ELEMENT ---
+    const SKILL_DATABASE = {
+      FIRE: [
+        { lvl: 1, name: "Ember Strike", dmg: 35, mana: 15, proc: "BURNING" },
+        { lvl: 2, name: "Thermal Dash", dmg: 55, mana: 25, proc: "BURNING" },
+        { lvl: 3, name: "Combustion Arc", dmg: 80, mana: 38, proc: "BURNING" },
+        { lvl: 4, name: "Cauterize Armor", dmg: 110, mana: 52, proc: "BURNING" },
+        { lvl: 5, name: "Blazing Torrent", dmg: 145, mana: 68, proc: "BURNING" },
+        { lvl: 6, name: "Molten Eruption", dmg: 185, mana: 85, proc: "BURNING" },
+        { lvl: 7, name: "Ignis Vortex", dmg: 230, mana: 105, proc: "BURNING" },
+        { lvl: 8, name: "Supernova Pulse", dmg: 280, mana: 130, proc: "BURNING" },
+        { lvl: 9, name: "Inferno Cataclysm", dmg: 340, mana: 160, proc: "BURNING" },
+        { lvl: 10, name: "Avatar of the Sun", dmg: 430, mana: 200, proc: "BURNING" }
+      ],
+      WATER: [
+        { lvl: 1, name: "Tide Whip", dmg: 30, mana: 12, proc: "WET" },
+        { lvl: 2, name: "Aqua Barrier", dmg: 48, mana: 22, proc: "WET" },
+        { lvl: 3, name: "Frost Needle", dmg: 72, mana: 35, proc: "FROZEN" },
+        { lvl: 4, name: "Riptide Surge", dmg: 100, mana: 48, proc: "WET" },
+        { lvl: 5, name: "Glacial Spire", dmg: 135, mana: 64, proc: "FROZEN" },
+        { lvl: 6, name: "Mist Veil", dmg: 170, mana: 80, proc: "WET" },
+        { lvl: 7, name: "Abyssal Geyser", dmg: 215, mana: 100, proc: "WET" },
+        { lvl: 8, name: "Permafrost Tomb", dmg: 265, mana: 125, proc: "FROZEN" },
+        { lvl: 9, name: "Tsunami Vanguard", dmg: 325, mana: 150, proc: "WET" },
+        { lvl: 10, name: "Oceanic Leviathan", dmg: 410, mana: 190, proc: "WET" }
+      ],
+      EARTH: [
+        { lvl: 1, name: "Rock Throw", dmg: 38, mana: 14, proc: "BRITTLE" },
+        { lvl: 2, name: "Stone Bastion", dmg: 58, mana: 26, proc: "BRITTLE" },
+        { lvl: 3, name: "Tremor Stomp", dmg: 84, mana: 40, proc: "BRITTLE" },
+        { lvl: 4, name: "Crystalline Spikes", dmg: 115, mana: 55, proc: "BRITTLE" },
+        { lvl: 5, name: "Seismic Charge", dmg: 150, mana: 72, proc: "BRITTLE" },
+        { lvl: 6, name: "Granite Carapace", dmg: 190, mana: 90, proc: "BRITTLE" },
+        { lvl: 7, name: "Chasm Splitter", dmg: 235, mana: 110, proc: "BRITTLE" },
+        { lvl: 8, name: "Monolith Slam", dmg: 290, mana: 135, proc: "BRITTLE" },
+        { lvl: 9, name: "Tectonic Cataclysm", dmg: 355, mana: 165, proc: "BRITTLE" },
+        { lvl: 10, name: "Primordial Pangea", dmg: 445, mana: 205, proc: "BRITTLE" }
+      ],
+      AIR: [
+        { lvl: 1, name: "Gust Shard", dmg: 32, mana: 13, proc: "CHARGED" },
+        { lvl: 2, name: "Updraft Leap", dmg: 50, mana: 24, proc: "CHARGED" },
+        { lvl: 3, name: "Vacuum Pull", dmg: 75, mana: 36, proc: "CHARGED" },
+        { lvl: 4, name: "Gale Deflection", dmg: 105, mana: 50, proc: "CHARGED" },
+        { lvl: 5, name: "Sonic Blast", dmg: 140, mana: 66, proc: "CHARGED" },
+        { lvl: 6, name: "Eye of Cyclone", dmg: 178, mana: 84, proc: "CHARGED" },
+        { lvl: 7, name: "Thunderhead Lance", dmg: 222, mana: 104, proc: "CHARGED" },
+        { lvl: 8, name: "Atmospheric Crush", dmg: 275, mana: 128, proc: "CHARGED" },
+        { lvl: 9, name: "Tempest Sovereign", dmg: 335, mana: 155, proc: "CHARGED" },
+        { lvl: 10, name: "Void Horizon", dmg: 425, mana: 195, proc: "CHARGED" }
+      ]
+    };
+
+    // --- GAME STATE ---
+    let player = { name: "Player", nation: "FIRE", maxHp: 1200, hp: 1200, maxMana: 600, mana: 600, statuses: new Set() };
+    let enemy = { name: "Rival Vanguard", nation: "WATER", maxHp: 1200, hp: 1200, maxMana: 600, mana: 600, statuses: new Set() };
+    let isPlayerTurn = true;
+
+    function startGame(selectedNation) {
+      player.nation = selectedNation;
+      
+      // Select a different random nation for enemy
+      const allNations = ["FIRE", "WATER", "EARTH", "AIR"].filter(n => n !== selectedNation);
+      enemy.nation = allNations[Math.floor(Math.random() * allNations.length)];
+
+      document.getElementById("screen-select").classList.remove("active-screen");
+      document.getElementById("screen-battle").classList.add("active-screen");
+
+      // UI setup
+      document.getElementById("player-name").textContent = `${player.nation} Sovereign`;
+      document.getElementById("enemy-name").textContent = `${enemy.nation} Vanguard`;
+      
+      const pBadge = document.getElementById("player-nation-badge");
+      pBadge.textContent = player.nation;
+      pBadge.className = `badge tag-${player.nation.toLowerCase()}`;
+
+      const eBadge = document.getElementById("enemy-nation-badge");
+      eBadge.textContent = enemy.nation;
+      eBadge.className = `badge tag-${enemy.nation.toLowerCase()}`;
+
+      renderSkills();
+      updateUI();
+      logMessage(`Match started: [${player.nation}] vs [${enemy.nation}]`);
+    }
+
+    function renderSkills() {
+      const grid = document.getElementById("skills-grid");
+      grid.innerHTML = "";
+      const skills = SKILL_DATABASE[player.nation];
+
+      skills.forEach((skill) => {
+        const btn = document.createElement("button");
+        btn.className = "skill-btn";
+        btn.id = `skill-btn-${skill.lvl}`;
+        btn.innerHTML = `
+          <span class="skill-name">T${skill.lvl}: ${skill.name}</span>
+          <span class="skill-meta">
+            <span>Dmg: ${skill.dmg}</span>
+            <span>MP: ${skill.mana}</span>
+          </span>
+        `;
+        btn.onclick = () => executeTurn(skill);
+        grid.appendChild(btn);
+      });
+    }
+
+    function executeTurn(skill) {
+      if (!isPlayerTurn || player.hp <= 0 || enemy.hp <= 0) return;
+      if (player.mana < skill.mana) {
+        logMessage("Not enough mana!");
+        return;
+      }
+
+      // Player casts
+      player.mana -= skill.mana;
+      applySkillEffect(player, enemy, skill);
+      updateUI();
+
+      if (enemy.hp <= 0) {
+        logMessage(`Victory! The opposing ${enemy.nation} champion fell!`);
+        disableAllButtons();
+        return;
+      }
+
+      // Enemy turn
+      isPlayerTurn = false;
+      disableAllButtons();
+      setTimeout(enemyTurn, 1000);
+    }
+
+    function enemyTurn() {
+      if (enemy.hp <= 0) return;
+
+      const skills = SKILL_DATABASE[enemy.nation];
+      // Pick affordable random skill, or level 1
+      const affordable = skills.filter(s => s.mana <= enemy.mana);
+      const chosenSkill = affordable.length > 0 ? affordable[Math.floor(Math.random() * affordable.length)] : skills[0];
+
+      if (enemy.mana >= chosenSkill.mana) {
+        enemy.mana -= chosenSkill.mana;
+      }
+      
+      logMessage(`Enemy casts [T${chosenSkill.lvl}: ${chosenSkill.name}]!`);
+      applySkillEffect(enemy, player, chosenSkill);
+
+      // Mana regen per turn
+      player.mana = Math.min(player.maxMana, player.mana + 25);
+      enemy.mana = Math.min(enemy.maxMana, enemy.mana + 25);
+
+      updateUI();
+
+      if (player.hp <= 0) {
+        logMessage("Defeat! Your defense broke under elemental force.");
+        disableAllButtons();
+        return;
+      }
+
+      isPlayerTurn = true;
+      enableAffordableButtons();
+    }
+
+    function applySkillEffect(attacker, defender, skill) {
+      let multiplier = 1.0;
+      let reaction = "";
+
+      // ELEMENTAL REACTION MATRIX
+      if (defender.statuses.has("WET") && skill.proc === "CHARGED") {
+        multiplier = 2.0;
+        reaction = "CONDUCTION: Lightning arcs through water for 2x damage!";
+      } else if (defender.statuses.has("BRITTLE") && skill.proc === "BURNING") {
+        multiplier = 1.75;
+        reaction = "MAGMA BLOOM: Rock liquifies, melting armor for 1.75x damage!";
+      } else if (defender.statuses.has("FROZEN") && skill.proc === "BURNING") {
+        multiplier = 2.2;
+        reaction = "THERMAL SHOCK: Flash melt triggers a critical 2.2x shatter blast!";
+        defender.statuses.delete("FROZEN");
+      } else if (defender.statuses.has("BURNING") && skill.proc === "WET") {
+        multiplier = 1.3;
+        reaction = "VAPORIZE: Flames extinguished in a dense 1.3x steam explosion!";
+        defender.statuses.delete("BURNING");
+      }
+
+      const totalDamage = Math.round(skill.dmg * multiplier);
+      defender.hp = Math.max(0, defender.hp - totalDamage);
+      defender.statuses.add(skill.proc);
+
+      logMessage(`${attacker.name} hit for ${totalDamage} damage.`);
+      if (reaction) {
+        logMessage(reaction, "log-reaction");
+      }
+    }
+
+    function updateUI() {
+      // Player Bars
+      document.getElementById("player-hp-label").textContent = `HP: ${player.hp}/${player.maxHp}`;
+      document.getElementById("player-hp-bar").style.width = `${(player.hp / player.maxHp) * 100}%`;
+      document.getElementById("player-mana-label").textContent = `Mana: ${player.mana}/${player.maxMana}`;
+      document.getElementById("player-mana-bar").style.width = `${(player.mana / player.maxMana) * 100}%`;
+
+      // Enemy Bars
+      document.getElementById("enemy-hp-label").textContent = `HP: ${enemy.hp}/${enemy.maxHp}`;
+      document.getElementById("enemy-hp-bar").style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
+      document.getElementById("enemy-mana-label").textContent = `Mana: ${enemy.mana}/${enemy.maxMana}`;
+      document.getElementById("enemy-mana-bar").style.width = `${(enemy.mana / enemy.maxMana) * 100}%`;
+
+      // Statuses
+      renderStatusTags("player-statuses", player.statuses);
+      renderStatusTags("enemy-statuses", enemy.statuses);
+
+      enableAffordableButtons();
+    }
+
+    function renderStatusTags(containerId, statusSet) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      statusSet.forEach(s => {
+        const span = document.createElement("span");
+        span.className = "status-tag";
+        span.textContent = s;
+        container.appendChild(span);
+      });
+    }
+
+    function enableAffordableButtons() {
+      if (!isPlayerTurn) return;
+      const skills = SKILL_DATABASE[player.nation];
+      skills.forEach((s) => {
+        const btn = document.getElementById(`skill-btn-${s.lvl}`);
+        if (btn) btn.disabled = player.mana < s.mana;
+      });
+    }
+
+    function disableAllButtons() {
+      document.querySelectorAll(".skill-btn").forEach(btn => btn.disabled = true);
+    }
+
+    function logMessage(text, className = "") {
+      const log = document.getElementById("combat-log");
+      const p = document.createElement("div");
+      if (className) p.className = className;
+      p.textContent = `> ${text}`;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+  </script>
+</body>
+</html>

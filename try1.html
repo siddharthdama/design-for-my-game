@@ -1,0 +1,458 @@
+<!DOCTYPE javascript>
+<html>
+    <script>
+        import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+// ==========================================
+// 1. MATH & SPATIAL VECTORS
+// ==========================================
+class Vector3 {
+    public final double x, y, z;
+
+    public Vector3(double x, double y, double z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+
+    public double distanceTo(Vector3 other) {
+        double dx = this.x - other.x;
+        double dy = this.y - other.y;
+        double dz = this.z - other.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("(%.1f, %.1f, %.1f)", x, y, z);
+    }
+}
+
+// ==========================================
+// 2. ENUMS & CONSTANTS
+// ==========================================
+enum TeamType {
+    RED("Red"),
+    BLUE("Blue"),
+    GREEN("Green"),
+    YELLOW("Yellow"),
+    SPECTATOR("Spectator");
+
+    private final String label;
+
+    TeamType(String label) {
+        this.label = label;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public static List<TeamType> getPlayableTeams() {
+        return List.of(RED, BLUE, GREEN, YELLOW);
+    }
+}
+
+enum MatchState {
+    LOBBY,
+    IN_GAME,
+    ENDED
+}
+
+// ==========================================
+// 3. BASE SPAWN CORE
+// ==========================================
+class SpawnCore {
+    private final TeamType team;
+    private final Vector3 position;
+    private final double maxHealth;
+    private double currentHealth;
+    private volatile boolean destroyed;
+
+    public SpawnCore(TeamType team, Vector3 position, double maxHealth) {
+        this.team = team;
+        this.position = position;
+        this.maxHealth = maxHealth;
+        this.currentHealth = maxHealth;
+        this.destroyed = false;
+    }
+
+    public synchronized boolean takeDamage(double amount, Player attacker) {
+        if (destroyed) return false;
+
+        currentHealth = Math.max(0.0, currentHealth - amount);
+        System.out.printf("[CORE HIT] %s attacked %s's Core for %.1f damage! (Remaining: %.1f/%.1f)%n",
+                attacker.getName(), team.getLabel(), amount, currentHealth, maxHealth);
+
+        if (currentHealth <= 0.0) {
+            destroyed = true;
+            System.out.printf(">>> [CRITICAL] %s's Core HAS BEEN DESTROYED! Respawning disabled! <<<%n", team.getLabel());
+            return true;
+        }
+        return false;
+    }
+
+    public synchronized void reset() {
+        this.currentHealth = maxHealth;
+        this.destroyed = false;
+    }
+
+    public TeamType getTeam() { return team; }
+    public Vector3 getPosition() { return position; }
+    public boolean isDestroyed() { return destroyed; }
+    public synchronized double getCurrentHealth() { return currentHealth; }
+}
+
+// ==========================================
+// 4. PLAYER ENTITY
+// ==========================================
+class Player {
+    private final String id;
+    private final String name;
+    private TeamType team;
+    private Vector3 position;
+    private final double maxHealth = 100.0;
+    private double health = 100.0;
+    private volatile boolean alive = true;
+    private volatile boolean eliminated = false;
+
+    public Player(String id, String name) {
+        this.id = id;
+        this.name = name;
+        this.team = TeamType.SPECTATOR;
+        this.position = new Vector3(0, 0, 0);
+    }
+
+    public synchronized void takeDamage(double amount, Player attacker, GameManager manager) {
+        if (!alive || eliminated) return;
+
+        health = Math.max(0.0, health - amount);
+        System.out.printf("[COMBAT] %s took %.1f damage from %s. (HP: %.1f/%.1f)%n",
+                name, amount, attacker.getName(), health, maxHealth);
+
+        if (health <= 0.0) {
+            alive = false;
+            System.out.printf("[-] %s died.%n", name);
+            manager.onPlayerDied(this);
+        }
+    }
+
+    public synchronized void respawn(Vector3 spawnLocation) {
+        this.health = maxHealth;
+        this.alive = true;
+        this.position = spawnLocation;
+        System.out.printf("[+] %s respawned at %s%n", name, spawnLocation);
+    }
+
+    public synchronized void eliminatePermanently() {
+        this.eliminated = true;
+        this.alive = false;
+        this.team = TeamType.SPECTATOR;
+        System.out.printf("[ELIMINATED] %s has been permanently removed from the match!%n", name);
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public String getName() { return name; }
+    public synchronized TeamType getTeam() { return team; }
+    public synchronized void setTeam(TeamType team) { this.team = team; }
+    public synchronized Vector3 getPosition() { return position; }
+    public synchronized void setPosition(Vector3 position) { this.position = position; }
+    public synchronized boolean isAlive() { return alive; }
+    public synchronized boolean isEliminated() { return eliminated; }
+    public synchronized void resetState() {
+        this.health = maxHealth;
+        this.alive = true;
+        this.eliminated = false;
+    }
+}
+
+// ==========================================
+// 5. WEAPON & COMBAT LOGIC
+// ==========================================
+class Weapon {
+    private final String name;
+    private final double playerDamage;
+    private final double coreDamage;
+    private final double range;
+
+    public Weapon(String name, double playerDamage, double coreDamage, double range) {
+        this.name = name;
+        this.playerDamage = playerDamage;
+        this.coreDamage = coreDamage;
+        this.range = range;
+    }
+
+    public void swing(Player user, GameManager manager) {
+        if (!user.isAlive() || user.isEliminated()) return;
+
+        Vector3 userPos = user.getPosition();
+
+        // 1. Detect and damage nearby enemy Cores
+        for (SpawnCore core : manager.getCores().values()) {
+            if (core.getTeam() != user.getTeam() && !core.isDestroyed()) {
+                if (userPos.distanceTo(core.getPosition()) <= range) {
+                    manager.damageCore(core.getTeam(), coreDamage, user);
+                    return; // Struck the core
+                }
+            }
+        }
+
+        // 2. Detect and damage closest enemy Player within range
+        Player nearestEnemy = null;
+        double minDistance = Double.MAX_VALUE;
+
+        for (Player other : manager.getPlayers().values()) {
+            if (other.getId().equals(user.getId())) continue;
+            if (other.getTeam() == user.getTeam() || other.getTeam() == TeamType.SPECTATOR) continue;
+            if (!other.isAlive() || other.isEliminated()) continue;
+
+            double dist = userPos.distanceTo(other.getPosition());
+            if (dist <= range && dist < minDistance) {
+                minDistance = dist;
+                nearestEnemy = other;
+            }
+        }
+
+        if (nearestEnemy != null) {
+            nearestEnemy.takeDamage(playerDamage, user, manager);
+        }
+    }
+}
+
+// ==========================================
+// 6. GAME MANAGER & ENGINE LOOP
+// ==========================================
+class GameManager {
+    private final Map<String, Player> players = new ConcurrentHashMap<>();
+    private final Map<TeamType, SpawnCore> cores = new EnumMap<>(TeamType.class);
+    private final Map<TeamType, Vector3> baseSpawns = new EnumMap<>(TeamType.class);
+
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private MatchState state = MatchState.LOBBY;
+
+    private static final int MIN_PLAYERS_REQUIRED = 4;
+    private static final int RESPAWN_DELAY_SECONDS = 3;
+
+    public GameManager() {
+        initializeMap();
+    }
+
+    private void initializeMap() {
+        // Base spawn coordinates (Compass layout)
+        baseSpawns.put(TeamType.RED, new Vector3(0, 0, 100));
+        baseSpawns.put(TeamType.BLUE, new Vector3(0, 0, -100));
+        baseSpawns.put(TeamType.GREEN, new Vector3(-100, 0, 0));
+        baseSpawns.put(TeamType.YELLOW, new Vector3(100, 0, 0));
+
+        // Initialize cores at their respective bases (500 HP each)
+        for (TeamType t : TeamType.getPlayableTeams()) {
+            cores.put(t, new SpawnCore(t, baseSpawns.get(t), 500.0));
+        }
+    }
+
+    public void addPlayer(Player player) {
+        players.put(player.getId(), player);
+        System.out.printf("[CONNECT] %s joined the server.%n", player.getName());
+    }
+
+    public void startEngine() {
+        scheduler.execute(this::matchLifecycleLoop);
+    }
+
+    private void matchLifecycleLoop() {
+        while (running.get()) {
+            try {
+                // PHASE 1: LOBBY & WAITING FOR PLAYERS
+                state = MatchState.LOBBY;
+                System.out.println("\n[LOBBY] Waiting for players... Need at least " + MIN_PLAYERS_REQUIRED);
+                while (players.size() < MIN_PLAYERS_REQUIRED) {
+                    Thread.sleep(1000);
+                }
+
+                System.out.println("[LOBBY] Minimum players reached. Intermission starting (5s)...");
+                Thread.sleep(5000);
+
+                // PHASE 2: INITIALIZING MATCH
+                state = MatchState.IN_GAME;
+                System.out.println("\n==========================================");
+                System.out.println(">>> MATCH COMMENCING! 4 TEAMS DEPLOYED <<<");
+                System.out.println("==========================================");
+
+                // Reset cores
+                cores.values().forEach(SpawnCore::reset);
+
+                // Balance players into 4 teams
+                List<TeamType> playable = TeamType.getPlayableTeams();
+                int idx = 0;
+                for (Player player : players.values()) {
+                    player.resetState();
+                    TeamType assigned = playable.get(idx % playable.size());
+                    player.setTeam(assigned);
+                    player.setPosition(baseSpawns.get(assigned));
+                    System.out.printf("Assigned %s to team %s at %s%n",
+                            player.getName(), assigned.getLabel(), player.getPosition());
+                    idx++;
+                }
+
+                // PHASE 3: ACTIVE MATCH LOOP
+                while (state == MatchState.IN_GAME && running.get()) {
+                    Thread.sleep(1000);
+                    evaluateMatchState();
+                }
+
+                // PHASE 4: POST-MATCH COOLDOWN
+                state = MatchState.ENDED;
+                System.out.println("[END] Teleporting players back to lobby in 5 seconds...\n");
+                Thread.sleep(5000);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    public synchronized void damageCore(TeamType team, double damage, Player attacker) {
+        SpawnCore core = cores.get(team);
+        if (core != null) {
+            boolean justDestroyed = core.takeDamage(damage, attacker);
+            if (justDestroyed) {
+                evaluateMatchState();
+            }
+        }
+    }
+
+    public void onPlayerDied(Player player) {
+        SpawnCore core = cores.get(player.getTeam());
+
+        if (core == null || core.isDestroyed()) {
+            // Core is gone -> Eliminate
+            player.eliminatePermanently();
+            evaluateMatchState();
+        } else {
+            // Core is intact -> Schedule Respawn
+            System.out.printf("[RESPAWN QUEUED] %s will respawn in %ds...%n", player.getName(), RESPAWN_DELAY_SECONDS);
+            scheduler.schedule(() -> {
+                if (state == MatchState.IN_GAME && !player.isEliminated()) {
+                    player.respawn(baseSpawns.get(player.getTeam()));
+                }
+            }, RESPAWN_DELAY_SECONDS, TimeUnit.SECONDS);
+        }
+    }
+
+    private synchronized void evaluateMatchState() {
+        if (state != MatchState.IN_GAME) return;
+
+        Set<TeamType> activeTeams = new HashSet<>();
+
+        for (TeamType t : TeamType.getPlayableTeams()) {
+            SpawnCore core = cores.get(t);
+            boolean coreAlive = (core != null && !core.isDestroyed());
+
+            // Team remains active if their core is alive OR if they still have surviving members
+            boolean hasMembersAlive = players.values().stream()
+                    .anyMatch(p -> p.getTeam() == t && !p.isEliminated());
+
+            if (coreAlive || hasMembersAlive) {
+                activeTeams.add(t);
+            }
+        }
+
+        if (activeTeams.size() <= 1) {
+            state = MatchState.ENDED;
+            System.out.println("\n******************************************");
+            if (activeTeams.size() == 1) {
+                TeamType winner = activeTeams.iterator().next();
+                System.out.printf("VICTORY! TEAM %s IS THE FINAL TEAM STANDING!%n", winner.getLabel().toUpperCase());
+            } else {
+                System.out.println("STALEMATE! ALL TEAMS WIPED OUT SIMULTANEOUSLY!");
+            }
+            System.out.println("******************************************\n");
+        }
+    }
+
+    public void shutdown() {
+        running.set(false);
+        scheduler.shutdownNow();
+    }
+
+    // Accessors
+    public Map<TeamType, SpawnCore> getCores() { return cores; }
+    public Map<String, Player> getPlayers() { return players; }
+    public MatchState getState() { return state; }
+}
+
+// ==========================================
+// 7. EXECUTABLE ENTRY POINT
+// ==========================================
+public class GameServer {
+    public static void main(String[] args) throws InterruptedException {
+        GameManager server = new GameManager();
+
+        // Register 4 players
+        Player p1 = new Player("p1", "Warrior_Red");
+        Player p2 = new Player("p2", "Sniper_Blue");
+        Player p3 = new Player("p3", "Berserker_Green");
+        Player p4 = new Player("p4", "Scout_Yellow");
+
+        server.addPlayer(p1);
+        server.addPlayer(p2);
+        server.addPlayer(p3);
+        server.addPlayer(p4);
+
+        // Start background engine thread
+        server.startEngine();
+
+        // Allow game to pass lobby intermission
+        Thread.sleep(7000);
+
+        // Create standard battle weapon: (Name, PlayerDamage, CoreDamage, ReachRange)
+        Weapon warHammer = new Weapon("War Hammer", 50.0, 250.0, 15.0);
+
+        System.out.println("\n--- [SIMULATION EVENTS BEGIN] ---");
+
+        // Event 1: Green runs to Red base and cracks Red's Core
+        p3.setPosition(new Vector3(0, 0, 95)); // Move within 5 studs of Red Core (0, 0, 100)
+        warHammer.swing(p3, server);
+        warHammer.swing(p3, server); // Destroys Red's core
+
+        // Event 2: Blue attacks Red player (p1) while Red Core is destroyed
+        p2.setPosition(p1.getPosition()); // Teleport adjacent to p1
+        warHammer.swing(p2, server);
+        warHammer.swing(p2, server); // Kills p1 -> Red permanently eliminated
+
+        Thread.sleep(1000);
+
+        // Event 3: Green rushes and wipes Blue's Core and Blue's player
+        p3.setPosition(new Vector3(0, 0, -95)); // Blue Core
+        warHammer.swing(p3, server);
+        warHammer.swing(p3, server); // Destroys Blue core
+
+        p3.setPosition(p2.getPosition()); // Attack p2
+        warHammer.swing(p3, server);
+        warHammer.swing(p3, server); // Eliminates Blue player
+
+        Thread.sleep(1000);
+
+        // Event 4: Green rushes Yellow Core and wipes Yellow's player
+        p3.setPosition(new Vector3(95, 0, 0)); // Yellow Core
+        warHammer.swing(p3, server);
+        warHammer.swing(p3, server); // Destroys Yellow core
+
+        p3.setPosition(p4.getPosition()); // Attack p4
+        warHammer.swing(p3, server);
+        warHammer.swing(p3, server); // Eliminates Yellow player -> Green Wins!
+
+        // Allow match evaluator to print victory
+        Thread.sleep(3000);
+
+        server.shutdown();
+        System.exit(0);
+    }
+}
+    </script>
+</html>

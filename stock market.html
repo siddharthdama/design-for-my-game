@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Market Drift: The Volatility Engine</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #131d2e;
+      --card: #1c2a42;
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --tech: #38bdf8;
+      --retail: #facc15;
+      --energy: #22c55e;
+      --pharma: #f43f5e;
+      --accent: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 18px; display: flex; justify-content: center; }
+    .container { max-width: 1100px; width: 100%; display: grid; grid-template-columns: 1fr 340px; gap: 20px; }
+
+    header { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #233450; padding-bottom: 12px; }
+    h1 { font-size: 1.5rem; color: #fff; }
+    .badge { background: #233450; padding: 5px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
+
+    /* Volatility Ladders */
+    .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .ladder { background: var(--panel); border-radius: 10px; border: 1px solid #233450; padding: 12px; display: flex; flex-direction: column; }
+    .ladder-title { font-weight: 700; font-size: 0.95rem; text-align: center; margin-bottom: 8px; }
+    .ladder-steps { display: flex; flex-direction: column-reverse; gap: 4px; margin: 10px 0; }
+    .step {
+      height: 28px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 8px;
+      font-size: 0.8rem;
+      background: #0d1522;
+      border: 1px solid #1c2b42;
+      color: var(--text-dim);
+    }
+    .step.active {
+      font-weight: 700;
+      color: #fff;
+      border: 2px solid #fff;
+      box-shadow: 0 0 10px rgba(255,255,255,0.2);
+    }
+
+    /* Dice Drafting Tray */
+    .dice-tray {
+      grid-column: 1 / -1;
+      background: var(--panel);
+      border: 2px dashed #334b6e;
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .dice-row { display: flex; gap: 12px; }
+    .market-die {
+      width: 54px;
+      height: 54px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 900;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.15s, outline 0.15s;
+      outline: 2px solid transparent;
+    }
+    .market-die:hover { transform: translateY(-3px); }
+    .market-die.selected { outline: 3px solid #fff; transform: scale(1.08); }
+
+    /* Action Controls */
+    .controls { display: flex; gap: 10px; margin-top: 8px; width: 100%; justify-content: center; }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-shift-up { background: #16a34a; }
+    .btn-shift-down { background: #dc2626; }
+    .btn-trade { background: #ca8a04; }
+
+    /* Right Sidebar (Players & News) */
+    .sidebar { display: flex; flex-direction: column; gap: 14px; }
+    .card { background: var(--panel); border-radius: 10px; padding: 14px; border: 1px solid #233450; }
+    .card h3 { font-size: 0.85rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+    .player-row { padding: 8px 0; border-bottom: 1px solid #233450; font-size: 0.88rem; display: flex; justify-content: space-between; }
+    .player-row.active { color: #facc15; font-weight: 700; }
+    .log-box { height: 160px; overflow-y: auto; font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1>Market Drift: The Volatility Engine</h1>
+      <small style="color:var(--text-dim)">Dice-Drafting Stock Exchange</small>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <span class="badge" id="round-pill">Round 1 / 8</span>
+      <span class="badge" id="turn-pill" style="background:#4338ca;">Player Turn</span>
+    </div>
+  </header>
+
+  <!-- Stock Volatility Ladders -->
+  <div class="board" id="ladders-container">
+    <!-- Rendered via JS -->
+  </div>
+
+  <!-- Shared Dice Pool -->
+  <div class="dice-tray">
+    <div style="font-size:0.9rem; color:var(--text-dim);">
+      <b>The Shared Market Pool:</b> Click a die to draft it, then choose how to apply it.
+    </div>
+    <div class="dice-row" id="dice-row"></div>
+    <div class="controls" id="action-controls">
+      <button class="btn-shift-up" id="btn-up" onclick="applyDie('shift_up')" disabled>Shift Price Up (+)</button>
+      <button class="btn-shift-down" id="btn-down" onclick="applyDie('shift_down')" disabled>Shift Price Down (-)</button>
+      <button class="btn-trade" id="btn-buy" onclick="applyDie('buy')" disabled>Buy Shares</button>
+      <button class="btn-trade" id="btn-sell" onclick="applyDie('sell')" disabled>Sell Shares</button>
+    </div>
+  </div>
+
+  <!-- Sidebar: Leaderboards and History -->
+  <div class="sidebar">
+    <div class="card">
+      <h3>Trading Desks & Portfolios</h3>
+      <div id="players-list"></div>
+    </div>
+    <div class="card">
+      <h3>Exchange Ticker Wire</h3>
+      <div class="log-box" id="log-list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const MAX_ROUNDS = 8;
+  let currentRound = 1;
+  let activePlayerIdx = 0;
+  let selectedDieIdx = null;
+
+  const STOCKS = {
+    tech: { name: "ByteBite (Tech)", color: "var(--tech)", price: 6, max: 12, min: 1, divThreshold: 10 },
+    retail: { name: "SillySocks (Retail)", color: "var(--retail)", price: 5, max: 12, min: 1, divThreshold: 9 },
+    energy: { name: "EcoVolt (Energy)", color: "var(--energy)", price: 4, max: 12, min: 1, divThreshold: 8 },
+    pharma: { name: "PharmaCare (Health)", color: "var(--pharma)", price: 7, max: 12, min: 1, divThreshold: 10 }
+  };
+
+  const players = [
+    { id: 0, name: "You (P1)", isAI: false, cash: 40, shares: { tech: 2, retail: 2, energy: 2, pharma: 1 } },
+    { id: 1, name: "Warren Bot", isAI: true, cash: 40, shares: { tech: 1, retail: 3, energy: 2, pharma: 2 } },
+    { id: 2, name: "Chad Momentum", isAI: true, cash: 40, shares: { tech: 4, retail: 0, energy: 2, pharma: 0 } },
+    { id: 3, name: "Pearl Yields", isAI: true, cash: 40, shares: { tech: 0, retail: 2, energy: 2, pharma: 3 } }
+  ];
+
+  let currentDicePool = [];
+
+  function log(msg) {
+    const box = document.getElementById("log-list");
+    const item = document.createElement("div");
+    item.textContent = msg;
+    box.prepend(item);
+  }
+
+  function rollMarketDice() {
+    const keys = Object.keys(STOCKS);
+    currentDicePool = [];
+    // 5 dice rolled into the common pool every round
+    for (let i = 0; i < 5; i++) {
+      const stockKey = keys[Math.floor(Math.random() * keys.length)];
+      const val = Math.floor(Math.random() * 3) + 1; // values 1, 2, or 3
+      currentDicePool.push({ id: i, stockKey, val, color: STOCKS[stockKey].color });
+    }
+    selectedDieIdx = null;
+    renderDice();
+  }
+
+  function renderLadders() {
+    const container = document.getElementById("ladders-container");
+    container.innerHTML = "";
+
+    for (let key in STOCKS) {
+      const s = STOCKS[key];
+      const div = document.createElement("div");
+      div.className = "ladder";
+      div.innerHTML = `
+        <div class="ladder-title" style="color:${s.color}">${s.name}</div>
+        <div style="text-align:center; font-size:1.2rem; font-weight:800;">$${s.price}</div>
+        <div style="font-size:0.75rem; text-align:center; color:var(--text-dim)">Div Payout at ≥$${s.divThreshold}</div>
+        <div class="ladder-steps" id="steps-${key}"></div>
+      `;
+      container.appendChild(div);
+
+      const stepsBox = div.querySelector(`#steps-${key}`);
+      for (let p = s.min; p <= s.max; p++) {
+        const step = document.createElement("div");
+        step.className = `step ${p === s.price ? 'active' : ''}`;
+        if (p === s.price) step.style.background = s.color;
+        step.innerHTML = `<span>Lvl ${p}</span> <span>$${p}</span>`;
+        stepsBox.appendChild(step);
+      }
+    }
+  }
+
+  function renderDice() {
+    const row = document.getElementById("dice-row");
+    row.innerHTML = "";
+    currentDicePool.forEach((d, idx) => {
+      const dieEl = document.createElement("div");
+      dieEl.className = `market-die ${selectedDieIdx === idx ? 'selected' : ''}`;
+      dieEl.style.background = d.color;
+      dieEl.style.color = "#090d16";
+      dieEl.textContent = `+${d.val}`;
+      dieEl.onclick = () => {
+        if (!players[activePlayerIdx].isAI) {
+          selectedDieIdx = idx;
+          renderDice();
+          updateButtons();
+        }
+      };
+      row.appendChild(dieEl);
+    });
+    updateButtons();
+  }
+
+  function updateButtons() {
+    const hasSelection = selectedDieIdx !== null;
+    const p = players[activePlayerIdx];
+    document.getElementById("btn-up").disabled = !hasSelection;
+    document.getElementById("btn-down").disabled = !hasSelection;
+
+    if (hasSelection) {
+      const die = currentDicePool[selectedDieIdx];
+      const stock = STOCKS[die.stockKey];
+      document.getElementById("btn-buy").disabled = p.cash < (stock.price * die.val);
+      document.getElementById("btn-sell").disabled = (p.shares[die.stockKey] || 0) < die.val;
+      document.getElementById("btn-buy").textContent = `Buy ${die.val}sh ($${stock.price * die.val})`;
+      document.getElementById("btn-sell").textContent = `Sell ${die.val}sh ($${stock.price * die.val})`;
+    } else {
+      document.getElementById("btn-buy").disabled = true;
+      document.getElementById("btn-sell").disabled = true;
+      document.getElementById("btn-buy").textContent = "Buy Shares";
+      document.getElementById("btn-sell").textContent = "Sell Shares";
+    }
+  }
+
+  function renderSidebar() {
+    const list = document.getElementById("players-list");
+    list.innerHTML = "";
+    players.forEach((p, idx) => {
+      let netWorth = p.cash;
+      let holdings = [];
+      for (let k in STOCKS) {
+        netWorth += (p.shares[k] || 0) * STOCKS[k].price;
+        if (p.shares[k]) holdings.push(`${k[0].toUpperCase()}:${p.shares[k]}`);
+      }
+
+      const row = document.createElement("div");
+      row.className = `player-row ${idx === activePlayerIdx ? 'active' : ''}`;
+      row.innerHTML = `
+        <div>
+          <div>${p.name} ${idx === activePlayerIdx ? '▶' : ''}</div>
+          <div style="font-size:0.75rem; color:var(--text-dim);">${holdings.join(" | ")}</div>
+        </div>
+        <div style="text-align:right;">
+          <div>$${netWorth}</div>
+          <small style="color:var(--text-dim); font-size:0.75rem;">Cash: $${p.cash}</small>
+        </div>
+      `;
+      list.appendChild(row);
+    });
+    document.getElementById("round-pill").textContent = `Round ${currentRound} / ${MAX_ROUNDS}`;
+  }
+
+  function applyDie(action) {
+    if (selectedDieIdx === null) return;
+    const die = currentDicePool[selectedDieIdx];
+    const stock = STOCKS[die.stockKey];
+    const p = players[activePlayerIdx];
+
+    if (action === 'shift_up') {
+      stock.price = Math.min(stock.max, stock.price + die.val);
+      log(`📈 ${p.name} used a +${die.val} die to push ${stock.name} to $${stock.price}!`);
+    } else if (action === 'shift_down') {
+      stock.price = Math.max(stock.min, stock.price - die.val);
+      log(`📉 ${p.name} used a -${die.val} die to drag ${stock.name} to $${stock.price}!`);
+    } else if (action === 'buy') {
+      const cost = stock.price * die.val;
+      p.cash -= cost;
+      p.shares[die.stockKey] += die.val;
+      log(`🤝 ${p.name} bought ${die.val} shares of ${stock.name} for $${cost}.`);
+    } else if (action === 'sell') {
+      const rev = stock.price * die.val;
+      p.cash += rev;
+      p.shares[die.stockKey] -= die.val;
+      log(`💵 ${p.name} sold ${die.val} shares of ${stock.name} for +$${rev}.`);
+    }
+
+    // Remove drafted die from pool
+    currentDicePool.splice(selectedDieIdx, 1);
+    selectedDieIdx = null;
+
+    renderLadders();
+    renderDice();
+    renderSidebar();
+    checkDividends();
+    advanceTurn();
+  }
+
+  function checkDividends() {
+    for (let k in STOCKS) {
+      const s = STOCKS[k];
+      if (s.price >= s.divThreshold) {
+        players.forEach(p => {
+          if (p.shares[k] > 0) {
+            const div = p.shares[k] * 2;
+            p.cash += div;
+            log(`💰 Dividend: ${s.name} hit high valuation! Paid $${div} to ${p.name}.`);
+          }
+        });
+      }
+    }
+  }
+
+  function advanceTurn() {
+    activePlayerIdx = (activePlayerIdx + 1) % players.length;
+
+    // If pool is empty, next round begins
+    if (currentDicePool.length <= 1) {
+      currentRound++;
+      if (currentRound > MAX_ROUNDS) {
+        endGame();
+        return;
+      }
+      log(`🔔 Round ${currentRound} Begins! Fresh market dice rolled.`);
+      rollMarketDice();
+    }
+
+    renderSidebar();
+
+    if (players[activePlayerIdx].isAI) {
+      setTimeout(runAITurn, 1000);
+    }
+  }
+
+  function runAITurn() {
+    if (currentDicePool.length === 0) return;
+    const p = players[activePlayerIdx];
+
+    // Pick first available die
+    selectedDieIdx = 0;
+    const die = currentDicePool[0];
+    const stock = STOCKS[die.stockKey];
+
+    // Simple behavioral bot choice
+    if (p.cash >= stock.price * die.val && Math.random() > 0.4) {
+      applyDie('buy');
+    } else if ((p.shares[die.stockKey] || 0) >= die.val && Math.random() > 0.5) {
+      applyDie('sell');
+    } else {
+      applyDie(Math.random() > 0.5 ? 'shift_up' : 'shift_down');
+    }
+  }
+
+  function endGame() {
+    log(`🏁 Market Closed! Calculating final liquidations...`);
+    let bestPlayer = null;
+    let maxWorth = -1;
+
+    players.forEach(p => {
+      let worth = p.cash;
+      for (let k in STOCKS) worth += (p.shares[k] || 0) * STOCKS[k].price;
+      if (worth > maxWorth) {
+        maxWorth = worth;
+        bestPlayer = p;
+      }
+    });
+
+    alert(`Game Over!\n\nWinner: ${bestPlayer.name} with $${maxWorth} Net Worth!`);
+  }
+
+  // Start Game
+  renderLadders();
+  rollMarketDice();
+  renderSidebar();
+  log("Trading open! Draft a die to adjust stock volatility or place orders.");
+</script>
+</body>
+</html>
